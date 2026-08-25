@@ -8,3 +8,14 @@ wheels/
 
 # Virtual environments
 .venv
+
+
+# Data and figure folders
+data/
+figures
+
+
+# Data and figure folders
+sim/
+data/
+figures/
