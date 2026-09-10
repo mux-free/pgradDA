@@ -1,0 +1,67 @@
+## *******************************************************************************************
+## File creation 2026-09-08 
+## ------------------------
+##
+## Data Assimilation
+##    - LETKF
+## *******************************************************************************************
+
+
+# --- Timing specifications ---------------------------------------------------------------------------------------------
+TIMING:
+   t0_spinup: 2026/02/10/00    # DateTime when ensemble should be ready
+ 
+
+# --- Modelling details -------------------------------------------------------------------------------------------- 
+DOMAIN:
+   L: [null, null, 8000]   
+   N: [128, 128, null]
+   c: [4.264082817804329, 52.10251027874312]    
+   d: [2000, 2000, 50]   
+   dzgrowth: 5
+   fractional_max_terrain_height_wrt_Lz: 0.3
+   z_start_growth_above_terrain: 0.0
+   grasp_template: nwp:meso:diagnose_abl_height
+   ls_coupling: nwp
+
+
+# --- Run specifications ------------------------------------------------------------------------------------------------
+RUN:
+   dt_spinup: "14400s"
+   n_members: 15
+   MICROPHYSICS: true
+
+# --- Assimilation specifics ----------------------------------------------------------------------------------------------
+ASSIMILATION:
+   iassim: 1             # 0: no assimilation; 1:active (LETKF)
+   n_da: 6           # Number of cycles      ncycles * dt_cycle
+   dt_da: "1800s"     # Length of individual windows in seconds
+   dt_pred: "63000s"     # Prediction after the last data assimilation cycle
+
+
+   LETKF:
+      loc_radius: 50000       # meters
+      loc_vertical: 300       # vertical localisation radius in meters
+      inflation: 1.1
+      mode_4d_3d: "3d"
+      state_vars: ["u","v"]   # ["u","v","Thl","qt"]
+      rtpp: 0.75              # relaxation to prior perturbation
+
+
+   OBSERVATIONS:
+      R2: 0.5
+
+   STATSIMDATA:
+      dtav: 15
+      dtwrite: 300
+      var: u[:,:,:], v[:,:,:]    
+
+
+# -- Specify base-path for all experiments and where the default aspforge-files are located -----------------------------------------------------------------
+PATHS: 
+   base_dir:          "/home/maxf/projects/REFORM/pgradDA/grasp/case_study"  # Method-folder will be saved in this dir.  
+   whiffle_env:       "/home/maxf/whiffle_env/whiffle_env25/bin/activate"    # Env to run whiffle task run
+
+
+
+

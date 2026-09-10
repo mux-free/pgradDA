@@ -16,6 +16,11 @@ figures
 
 
 # Data and figure folders
-sim/
+grasp/
 data/
 figures/
+
+
+# Not tracking any .ipynb
+*.ipynb
+

@@ -1,0 +1,38 @@
+timing: 
+  inits: ["2025/01/27"]
+  start_wrt_init: 6h
+  end_wrt_init: 7h
+
+
+nwploader_kwargs:
+  ecmwf_ensemble:
+    stream_name: north_sea
+    member: 13
+
+simulations:
+  'meso':
+    domain:
+      c: [4.264082817804329, 52.10251027874312]
+      N: [64, 64, 64]
+      d: [1000, 1000, 40]
+      L: [null, null, 8000]
+    ls_coupling: nwp
+    data_sources:
+      dtm: default
+      ground: default
+      land_sea_mask: default
+      land_use: default
+      ls_model: ecmwf_ensemble
+    
+    grasp_template: nwp
+
+      # extend_grasp_template:
+      #RUN:
+      #  amplification_target: .5                   # SHOULD FIX CRASHES
+      #STATSIMDATA:
+      #  dtav: 3
+      #  dtwrite: 600
+      #  lactive: 1
+      #  var: u[:,:,:], v[:,:,:]
+
+
