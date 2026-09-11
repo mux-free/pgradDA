@@ -18,7 +18,7 @@ DOMAIN:
    N: [128, 128, null]
    c: [4.264082817804329, 52.10251027874312]    
    d: [2000, 2000, 50]   
-   dzgrowth: 5
+   dzgrowth: 15
    fractional_max_terrain_height_wrt_Lz: 0.3
    z_start_growth_above_terrain: 0.0
    grasp_template: nwp:meso:diagnose_abl_height
@@ -33,16 +33,17 @@ RUN:
 
 # --- Assimilation specifics ----------------------------------------------------------------------------------------------
 ASSIMILATION:
-   iassim: 1             # 0: no assimilation; 1:active (LETKF)
-   n_da: 6           # Number of cycles      ncycles * dt_cycle
-   dt_da: "1800s"     # Length of individual windows in seconds
-   dt_pred: "63000s"     # Prediction after the last data assimilation cycle
+   iassim: 1            # 0: no assimilation; 1:active (LETKF)
+   n_da: 21             # Number of assimilation steps
+   dt_da: "1800s"       # Period between assimilation steps
+   dt_pred: "36000s"    # Prediction period after the last assimilation step
+
 
 
    LETKF:
-      loc_radius: 50000       # meters
+      loc_radius: 50000       # meters. 50_000
       loc_vertical: 300       # vertical localisation radius in meters
-      inflation: 1.1
+      inflation: 1.15
       mode_4d_3d: "3d"
       state_vars: ["u","v"]   # ["u","v","Thl","qt"]
       rtpp: 0.75              # relaxation to prior perturbation

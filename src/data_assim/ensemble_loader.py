@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime
 
 import sys
-sys.path.insert(1, '../../utils')
+sys.path.insert(1, '../utils')
 import utils_aspire
 
 @dataclass
@@ -66,7 +66,7 @@ class EnsembleLoader:
         # --- 3) Calculate offset value for x and y direction (1 value, as offset is the same for all points along x/y direction)
         xf_offset = np.unique((ds_sd["xf"].values - ds_rs["xf"].values))
         yf_offset = np.unique((ds_sd["yf"].values - ds_rs["yf"].values))
-        self.xf_offset, self.yf_offset = ds_sd["xf"].values[0], ds_sd["yf"].values[0]
+        self.xf_offset, self.yf_offset = xf_offset[0], yf_offset[0]
         
 
     def load_ensemble(self, fname):
@@ -79,11 +79,10 @@ class EnsembleLoader:
             
             # If time-dimension is present, round it to next minute! --> S.t. times can be concatenated
             if "time" in ds.sizes:
-                ds["time"] = ds["time"].dt.round("min")
-
+                ds["time"] = ds["time"].dt.round("5min")
 
             all_members.append(ds)
-        ds_rs = xr.concat(all_members, dim="ensemble", join="exact")
+        ds_rs = xr.concat(all_members, dim="ensemble", join="override")
         ds_rs["ensemble"] = ds_rs["ensemble"] + 1
 
         # Store ds_prior as attribute
@@ -105,7 +104,13 @@ class EnsembleLoader:
 
     def __call__(self, fname_base:str):
 
-        if not (fname_base == "graspOutRestart" or fname_base == "graspOutSimdata"):
+        if not (
+            fname_base == "graspOutRestart" 
+            or 
+            fname_base == "graspOutSimdata"
+            or
+            fname_base == "graspInRestart" 
+            ):
             raise ValueError(
                 f"Base name of file has to be either 'graspOutRestart' or 'graspOutSimdata'. \n"
                 f"But fname-base name passed: {fname_base} is NOT specified"
