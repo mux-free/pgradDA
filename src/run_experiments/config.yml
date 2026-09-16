@@ -34,10 +34,9 @@ RUN:
 # --- Assimilation specifics ----------------------------------------------------------------------------------------------
 ASSIMILATION:
    iassim: 1            # 0: no assimilation; 1:active (LETKF)
-   n_da: 21             # Number of assimilation steps
+   n_da: 6             # Number of assimilation steps
    dt_da: "1800s"       # Period between assimilation steps
    dt_pred: "36000s"    # Prediction period after the last assimilation step
-
 
 
    LETKF:
@@ -46,7 +45,7 @@ ASSIMILATION:
       inflation: 1.15
       mode_4d_3d: "3d"
       state_vars: ["u","v"]   # ["u","v","Thl","qt"]
-      rtpp: 0.75              # relaxation to prior perturbation
+      rtpp: 0.5               # relaxation to prior perturbation
 
 
    OBSERVATIONS:
@@ -60,7 +59,7 @@ ASSIMILATION:
 
 # -- Specify base-path for all experiments and where the default aspforge-files are located -----------------------------------------------------------------
 PATHS: 
-   base_dir:          "/home/maxf/projects/REFORM/pgradDA/grasp/case_study"  # Method-folder will be saved in this dir.  
+   # base_dir:          "/home/maxf/projects/REFORM/pgradDA/grasp/case_study"  # Method-folder will be saved in this dir.  
    whiffle_env:       "/home/maxf/whiffle_env/whiffle_env25/bin/activate"    # Env to run whiffle task run
 
 

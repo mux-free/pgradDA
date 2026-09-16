@@ -92,11 +92,6 @@ class AssimilationOperator:
             self.apply_rtpp = True
         else:
             self.apply_rtpp = False
-        
-        # BasePath dir
-        self.base_path: Path = self.ctx.base_path
-        self.simdir_ctrl: Path = self.base_path / self.ctx.t0_spinup.strftime("%Y/%m/%d/%H")
-
 
 
     def insert_analysis_section(
@@ -146,7 +141,7 @@ class AssimilationOperator:
         xa_prime = ds_post  - xa_mean # analysis perts
 
         # 3) RTPP perturbations
-        xa_prime_rtpp = alpha * xa_prime + (1.0-alpha) * xb_prime
+        xa_prime_rtpp = alpha * xb_prime + (1.0-alpha) * xa_prime
 
         # 4) Rebuild ensemble with analysis mean
         ds_post_rtpp = xa_mean + xa_prime_rtpp
@@ -157,7 +152,7 @@ class AssimilationOperator:
             self, 
             ds_obs:xr.Dataset, 
             ztop_assim:int,
-            do_assimilation:bool=True, 
+            do_assimilation:bool, 
             weight_save_path:str|None=None,
             return_posterior:bool=False,
             ):
@@ -170,17 +165,14 @@ class AssimilationOperator:
         
         ## --- 1) LOAD GRASP data
         ens_loader = EnsembleLoader(
-            data_folder=self.simdir_ctrl, 
-            timestamp=self.tda, 
+            data_folder=self.ctx.simdir_ctrl,
+            timestamp=self.tda,
             nmembers=self.ctx.n_members)
         ds_prior = ens_loader(fname_base="graspOutRestart")
         
-        ds_prior_small = ds_prior.isel(zf=slice(None,ztop_assim))
-
-
         if do_assimilation:
-            
             # --- 2) Data assimilation Update
+            ds_prior_small = ds_prior.isel(zf=slice(None,ztop_assim))
             ds_post = run_letkf(
                 ds_prior=ds_prior_small,
                 ds_obs=ds_obs, 
@@ -206,11 +198,10 @@ class AssimilationOperator:
                 ds_restart=ds_prior.squeeze(),      # the big one you want to update
                 ds_analysis=ds_post,           # analysis on the small window
                 ztop_idx=ztop_assim
-            )
-            
+            )            
             # --- 5) Project data back s.t. it fits with Restart-file structure 
             ds_post2 = ens_loader.restagger_u_v(ds=ds_post)
-    
+
         else:
             ds_post2=ds_prior
 
@@ -227,7 +218,6 @@ class AssimilationConductor:
     def __init__(
             self, 
             config_path: Path, 
-            simdir_ctrl: Path,
             base_dir: Path,
             obs_file: Path,
             ztop_assim_idx: int = 30,
@@ -239,7 +229,6 @@ class AssimilationConductor:
         config = self._load_config(config_path / "config.yml")
         config["PATHS"]["experiment_dir"] = base_dir
         self.ctx = ExperimentContext(config)
-        
         self.gpu = gpu
         self.save_weights = save_weights
 
@@ -247,8 +236,6 @@ class AssimilationConductor:
         self.t_now: datetime = self.ctx.t0_spinup
 
         # --- Paths
-        self.simdir_ctrl: Path = simdir_ctrl
-        self.experiment_dir: Path = base_dir
         self.path_assim_obs: Path = base_dir / "obs_data" / "assimilated"
         self.checkpoint_file: Path = base_dir / "checkpoint.yml"
         self.obs_file: Path = obs_file
@@ -305,16 +292,16 @@ class AssimilationConductor:
         for i in iterator:
             forward = ForwardOperator(
                 context=self.ctx, 
-                simdir_ctrl=self.simdir_ctrl,
+                simdir_ctrl=self.ctx.simdir_ctrl,
                 ensemble_nr=i, 
                 tstart_window=self.ctx.t0_spinup,
                 dt_window=self.ctx.dt_spinup 
                 )        
 
             if ensemble_run:
-                fnml = self.simdir_ctrl / f"ensemble_{str(i).zfill(2)}" / "graspIn.meso.nml"
+                fnml = self.ctx.simdir_ctrl / f"ensemble_{str(i).zfill(2)}" / "graspIn.meso.nml"
             else:
-                fnml = self.simdir_ctrl / "graspIn.meso.nml"
+                fnml = self.ctx.simdir_ctrl / "graspIn.meso.nml"
             forward(f_namelist=fnml, read_restart=False, write_restart=True)
 
         
@@ -329,51 +316,49 @@ class AssimilationConductor:
         for i in iterator:
             forward = ForwardOperator(
                 context=self.ctx, 
-                simdir_ctrl=self.simdir_ctrl,
+                simdir_ctrl=self.ctx.simdir_ctrl,
                 ensemble_nr=i, 
                 tstart_window=t_init, 
                 dt_window=self.ctx.dt_da 
                 )        
 
             if ensemble_run:
-                fnml = self.simdir_ctrl / f"ensemble_{str(i).zfill(2)}" / "graspIn.meso.nml"
+                fnml = self.ctx.simdir_ctrl / f"ensemble_{str(i).zfill(2)}" / "graspIn.meso.nml"
             else:
-                fnml = self.simdir_ctrl / "graspIn.meso.nml"
+                fnml = self.ctx.simdir_ctrl / "graspIn.meso.nml"
             forward(f_namelist=fnml, read_restart=True, write_restart=True)
 
         # --- Update current time-step
-        self.current_schedule_idx += 1
+        if ensemble_run:
+            self.current_schedule_idx += 1
 
 
 
     def forecast_step(
             self, 
+            tinit_forecast: datetime,
             ensemble_run:bool=True,
             ):
         """ Run pseudo forecast after data-assimilation is done until the end of the available time """
         # --- FORWARD Run Members
-        if self.current_schedule_idx < len(self.assim_schedule)-1:
-            tstart_window = self.assim_schedule[self.current_schedule_idx]
-        else:
-            print(f"Last Forward step reached at {self.assim_schedule[-2]}")
-            return self.assim_schedule[-2]
         
-        print(f"Control Run Predictions at: {self.ctx.t0_pred} for dtpred: {self.ctx.dt_pred} secs")
+        simtype = "Ensemble" if ensemble_run else "Control"
+        print(f"{simtype} Run Predictions at: {self.ctx.t0_pred} for dtpred: {self.ctx.dt_pred} secs")
 
         iterator = range(1, self.ctx.n_members + 1)if ensemble_run else range(0,1)
         for i in iterator:
             forward = ForwardOperator(
                 context=self.ctx, 
-                simdir_ctrl=self.simdir_ctrl,
+                simdir_ctrl=self.ctx.simdir_ctrl,
                 ensemble_nr=i, 
-                tstart_window=tstart_window, 
+                tstart_window=tinit_forecast, 
                 dt_window=self.ctx.dt_pred 
                 )        
 
             if ensemble_run:
-                fnml = self.simdir_ctrl / f"ensemble_{str(i).zfill(2)}" / "graspIn.meso.nml"
+                fnml = self.ctx.simdir_ctrl / f"ensemble_{str(i).zfill(2)}" / "graspIn.meso.nml"
             else:
-                fnml = self.simdir_ctrl / "graspIn.meso.nml"
+                fnml = self.ctx.simdir_ctrl / "graspIn.meso.nml"
             forward(f_namelist=fnml, read_restart=True, write_restart=True)
 
 
@@ -382,8 +367,9 @@ class AssimilationConductor:
             self, 
             ztop_assim:int, 
             obs_file:Path,
+            do_assimilation:bool,
             return_posterior:bool=False, 
-            weight_save_path=None
+            weight_save_path=None,
             ):
         """ Compute data assimilation update at given time-step"""
 
@@ -403,18 +389,18 @@ class AssimilationConductor:
         assimilation = AssimilationOperator(
             context=self.ctx,
             t_assim=t_cyc,
-            gpu=self.gpu
+            gpu=self.gpu,
             )
         
         assimilation(
             ds_obs=ds_obs_da, 
             ztop_assim=ztop_assim, 
-            do_assimilation=True, 
+            do_assimilation=do_assimilation, 
             return_posterior=return_posterior, 
             weight_save_path=weight_save_path)
 
 
-    def __call__(self):
+    def __call__(self, do_assimilation:bool):
 
         # --- 1) Run Spin-Up (if not done already)
         print("\nRun SpinUp\n----------")
@@ -424,7 +410,12 @@ class AssimilationConductor:
         # --- 2) Loop over assimilation schedule and perform data-assimilation tasks
         for idx, t_assim in enumerate(self.assim_schedule):
             print(f"Assimilation step {idx+1:2d}")
-            self.assim_step(ztop_assim=self.ztop_assim_idx, obs_file=self.obs_file, return_posterior=False)
+            self.assim_step(
+                ztop_assim=self.ztop_assim_idx, 
+                do_assimilation=do_assimilation,
+                obs_file=self.obs_file, 
+                return_posterior=False,
+                )
             
             if idx == len(self.assim_schedule)-1:
                 print("DONE with Assimilation Part")   
@@ -437,7 +428,9 @@ class AssimilationConductor:
 
         # --- 3) Forecast step
         print(f"Forecast step for a lead time of: {self.ctx.dt_pred/3600:.2f} hours")
-        self.forecast_step()
+        t0_forecast = self.assim_schedule[-1]
+        self.forecast_step(tinit_forecast=t0_forecast, ensemble_run=False)
+        self.forecast_step(tinit_forecast=t0_forecast, ensemble_run=True)
 
 
 

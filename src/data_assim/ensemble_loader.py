@@ -13,7 +13,7 @@ import utils_aspire
 @dataclass
 class EnsembleLoader:
     nmembers: int
-    data_folder: str | Path
+    data_folder: Path
     timestamp: datetime
     
     # Hanlde staggered-grid

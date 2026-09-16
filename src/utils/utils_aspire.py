@@ -173,14 +173,15 @@ def aspforge_task_run(aspforge_file,
 
 def modify_namelist_file(
         namelist_file:Path,
-        tstart:datetime, 
-        tend:datetime, 
+        tstart:datetime|None, 
+        tend:datetime|None, 
         dtwrite_restart:str, 
         read_restart_active:bool=False, 
         write_restart_active:bool=False,
         restart_input:str|None=None,
         spinup_phase:bool=False,
         add_statsimdata:bool=False,
+        only_modify_simdata:bool=False,
         ):
     """ 
     This function modifies graspIn.000.nml files in the following ways:
@@ -192,63 +193,68 @@ def modify_namelist_file(
         """ Return list of date constituents; from year to seconds based on DATETIME """
         return [t.year, t.month, t.day, t.hour, t.minute, t.second, 0]
     
+
+
     # Ensure that timing exists
-    if not isinstance(tstart, datetime) or not isinstance(tend, datetime):
-        raise ValueError(f"Time of start/end (tstart_window/tend_window) simulation must be of type datetime!!")
+    if not only_modify_simdata:
+        if not isinstance(tstart, datetime) or not isinstance(tend, datetime):
+            raise ValueError(f"Time of start/end (tstart_window/tend_window) simulation must be of type datetime!!")
+        
+        # --- 1) Handle timing
+        dtwrite    = pd.Timedelta(dtwrite_restart).total_seconds()
+        t_previous = tstart - timedelta(seconds=dtwrite)
+
+        timetag_now  = tstart.strftime('%Y%m%d%H%M')
+        
+        if spinup_phase:
+            timetag_prev = "original"
+        else:
+            timetag_prev = t_previous.strftime('%Y%m%d%H%M')
+        
+        # Set default
+        if restart_input is None and read_restart_active==1:
+            restart_input = f"graspInRestart_{timetag_now}.meso.nc"
+
+        # --- 2) Apply changes to namelist file
+        restart_vars = (
+            "u,v,w,qt,Thl,qr,t_soil,q_soil,"
+            "up,vp,wp,qtp,Thlp,qrp,t_soilp,q_soilp,nutm,nutb"
+        )
     
-    # --- 1) Handle timing
-    dtwrite    = pd.Timedelta(dtwrite_restart).total_seconds()
-    t_previous = tstart - timedelta(seconds=dtwrite)
-
-    timetag_now  = tstart.strftime('%Y%m%d%H%M')
+        if read_restart_active:
+            patch["READRESTART"] = {
+                "file": restart_input,
+                "lactive": True,
+                "var": restart_vars,
+            }
     
-    if spinup_phase:
-        timetag_prev = "original"
-    else:
-        timetag_prev = t_previous.strftime('%Y%m%d%H%M')
-    
-    # Set default
-    if restart_input is None and read_restart_active==1:
-        restart_input = f"graspInRestart_{timetag_now}.meso.nc"
-
-
-    # --- 2) Apply changes to namelist file
-    restart_vars = (
-        "u,v,w,qt,Thl,qr,t_soil,q_soil,"
-        "up,vp,wp,qtp,Thlp,qrp,t_soilp,q_soilp,nutm,nutb"
-    )
-    tmp_file = namelist_file.parent / "graspIn_TMP.000.nml"
-
-
-    patch = {
-        "RUN": {
-            "dofdif": _get_datelist(tstart),
-            "doldif": _get_datelist(tend),
-        },
-        "WRITERESTART": {
-            "dtwrite": int(dtwrite),
-            "lactive": write_restart_active,
-            "var": restart_vars,
-        },
-    }
-
-    if read_restart_active:
-        patch["READRESTART"] = {
-            "file": restart_input,
-            "lactive": True,
-            "var": restart_vars,
+        patch = {
+            "RUN": {
+                "dofdif": _get_datelist(tstart),
+                "doldif": _get_datelist(tend),
+            },
+            "WRITERESTART": {
+                "dtwrite": int(dtwrite),
+                "lactive": write_restart_active,
+                "var": restart_vars,
+            },
         }
+    
+    else:
+        print("Only Simdata relevant stuff is considered")
+        patch = {}
 
     if add_statsimdata:
         patch["STATSIMDATA"] = {
             "dtav": 30,
             "dtwrite": 600,
             "lactive": True,
-            "var": 'u[:,:,:], v[:,:,:]'
+            "var": 'u[:,:,:], v[:,:,:], M[:,:,:]'
         }
 
 
     # Patch only specified fields; leave all other sections untouched
+    tmp_file = namelist_file.parent / "graspIn_TMP.000.nml"
     f90nml.patch(namelist_file, patch, tmp_file)
 
     import re
@@ -262,21 +268,17 @@ def modify_namelist_file(
             text,
         )
 
-    # Remove READRESTART completely when inactive
+    # --- If READRESTART is inactive --> remove section from nml-file
     if not read_restart_active:
-        text = re.sub(
-            r"(?ims)^\s*&READRESTART\b.*?^\s*/\s*\n?",
-            "",
-            text,
-        )
-
+        text = re.sub(r"(?ims)^\s*&READRESTART\b.*?^\s*/\s*\n?", "", text)
     tmp_file.write_text(text)
 
-
     # --- 3) Rename new nml-file  and save old namelist files for debugging purposes
-    archive_name = namelist_file.parent / f"graspIn_{timetag_prev}.meso.nml"
-    namelist_file.rename(archive_name)
-    tmp_file.rename(namelist_file)
+    
+    if not only_modify_simdata:
+        archive_name = namelist_file.parent / f"graspIn_{timetag_prev}.meso.nml"
+        namelist_file.rename(archive_name)
+        tmp_file.rename(namelist_file)
 
 
 
@@ -288,11 +290,11 @@ def transfer_vars_to_graspInNWP(
     output_file: str | Path,
 ) -> Path:
     """
-    Create output_file as an exact copy of base_file, then replace
-    selected variable values with values from member_file.
+    Create output_file as an exact copy of base_file, then replace selected variable 
+    values with values from member_file.
 
-    Only the numerical data of `variables` are changed.
-    NetCDF structure and metadata come entirely from base_file.
+    Only the numerical data of "variables" are changed, but NetCDF structure 
+    and metadata come entirely from base_file.
     """
 
     base_file = Path(base_file)
@@ -349,8 +351,6 @@ def transfer_vars_to_graspInNWP(
 
         # Atomically place completed file at output path
         os.replace(tmp_file, output_file)
-
-
 
     return output_file
 

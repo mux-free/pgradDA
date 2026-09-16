@@ -29,7 +29,8 @@ class ExperimentContext:
     t_end: datetime    = field(init=False)
     
     # Paths
-    base_path: Path = field(init=False)
+    experiment_dir: Path = field(init=False)
+    simdir_ctrl: Path = field(init=False)
 
     # --- DA specifics
     radius: int       = field(init=False)
@@ -71,7 +72,8 @@ class ExperimentContext:
         r2            = config["ASSIMILATION"]["OBSERVATIONS"]["R2"]
 
         # --- 5) Handle paths
-        base_path = config["PATHS"]["experiment_dir"]
+        experiment_dir = config["PATHS"]["experiment_dir"]
+        simdir_ctrl = experiment_dir / "run" / t0_spinup.strftime("%Y/%m/%d/%H")
 
     
         # --- 6)  __init__             Set fields as attribtues (must be done in this way, as we specify contex to be immmutable dataclass)
@@ -84,7 +86,8 @@ class ExperimentContext:
         object.__setattr__(self, "t0_da", t0_da)
         object.__setattr__(self, "t0_pred",    t0_pred)
         object.__setattr__(self, "t_end",    t_end)
-        object.__setattr__(self, "base_path", base_path)
+        object.__setattr__(self, "experiment_dir", experiment_dir)
+        object.__setattr__(self, "simdir_ctrl", simdir_ctrl)
         # -- DA specifics
         object.__setattr__(self, "radius",     radius)
         object.__setattr__(self, "vert_loc",   vert_loc)
@@ -93,7 +96,8 @@ class ExperimentContext:
         object.__setattr__(self, "state_vars", state_vars)
         object.__setattr__(self, "rtpp",       rtpp)
         object.__setattr__(self, "r2",         r2)
-        object.__setattr__(self, "base_path",  base_path)
+        object.__setattr__(self, "experiment_dir",  experiment_dir)
+        object.__setattr__(self, "simdir_ctrl",  simdir_ctrl)
 
 
 

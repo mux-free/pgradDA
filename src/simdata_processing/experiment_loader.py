@@ -7,26 +7,23 @@ from datetime import datetime, timedelta
 
 
 
-
-
-# ---- DATA LOADING FUNCTIONS
 # **********************************************************************
-
+# ---- Load summaraized Data
 def load_exp_data(
-        expname:str, 
         base_dir:Path, 
-        xslice:slice,
-        yslice:slice, 
-        zslice:slice,
-        adjust_coords_for_rs:bool, 
+        expname:str, 
+        adjust_coords_for_rs: bool, 
         round_predobs_to:None|str,
         load_simdata_field:bool,
         load_predobs:bool,
         load_restart_fields:bool,
         load_ens_perts:bool, 
-        cutoff_time: datetime | timedelta | None,
+        yslice:slice=slice(None,None), 
+        xslice:slice=slice(None,None),
+        zslice:slice=slice(None,None),
+        cutoff_time: datetime | timedelta | None = None,
         ):
-    
+    """ Function that loads summarized data """
 
     def load_ds(path, xslice=xslice, yslice=yslice, zslice=zslice):
         ds = xr.open_dataset(path)
@@ -36,8 +33,8 @@ def load_exp_data(
 
 
     def split_control(ds):
-        ds_ctrl = ds.sel(member=0)
-        ds_ens  = ds.drop_sel(member=0)
+        ds_ctrl = ds.sel(ensemble=0)
+        ds_ens  = ds.drop_sel(ensemble=0)
         return ds_ens, ds_ctrl
 
     
@@ -46,23 +43,23 @@ def load_exp_data(
 
     # --- LOAD SimData (EnsembleMean and Control)
     if load_simdata_field:
-        datadict["ds_da"]   = load_ds(f"{base_dir}/{expname}/data_assim/run/output/graspOutSimdata.ensemble.nc")
-        datadict["ds_ctrl"] = load_ds(f"{base_dir}/{expname}/data_assim/run/output/graspOutSimdata.control.nc")
+        datadict["ds_da"]   = load_ds(f"{base_dir}/{expname}/sim_output/graspOutSimdata.ensemble.nc")
+        datadict["ds_ctrl"] = load_ds(f"{base_dir}/{expname}/sim_output/graspOutSimdata.control.nc")
 
     # --- Load Restart files
     if load_restart_fields:
-        datadict["ds_rsi"]      = load_ds(f"{base_dir}/{expname}/data_assim/run/output/graspRestartIn.ensemble.nc")
-        datadict["ds_rso"]      = load_ds(f"{base_dir}/{expname}/data_assim/run/output/graspRestartOut.ensemble.nc")
-        datadict["ds_rsi_ctrl"] = load_ds(f"{base_dir}/{expname}/data_assim/run/output/graspRestartIn.control.nc")
-        datadict["ds_rso_ctrl"] = load_ds(f"{base_dir}/{expname}/data_assim/run/output/graspRestartOut.control.nc")
+        datadict["ds_rsi"]      = load_ds(f"{base_dir}/{expname}/sim_output/graspRestartIn.ensemble.nc")
+        datadict["ds_rso"]      = load_ds(f"{base_dir}/{expname}/sim_output/graspRestartOut.ensemble.nc")
+        datadict["ds_rsi_ctrl"] = load_ds(f"{base_dir}/{expname}/sim_output/graspRestartIn.control.nc")
+        datadict["ds_rso_ctrl"] = load_ds(f"{base_dir}/{expname}/sim_output/graspRestartOut.control.nc")
         
 
     # --- Load Predicted-Observations (Restart-Out and Simdata)
     if load_predobs:
-        ds_po_sd  = xr.open_dataset(f"{base_dir}/{expname}/data_assim/run/output/graspOutSimdata.PredObs.nc")
-        ds_po_rso = xr.open_dataset(f"{base_dir}/{expname}/data_assim/run/output/graspRestartOut.PredObs.nc")
+        ds_po_sd  = xr.open_dataset(f"{base_dir}/{expname}/sim_output/graspOutSimdata.PredObs.nc")
+        ds_po_rso = xr.open_dataset(f"{base_dir}/{expname}/sim_output/graspRestartOut.PredObs.nc")
         
-        rsi_predobs = Path(f"{base_dir}/{expname}/data_assim/run/output/graspRestartIn.PredObs.nc")
+        rsi_predobs = Path(f"{base_dir}/{expname}/sim_output/graspRestartIn.PredObs.nc")
         if rsi_predobs.is_file():
             ds_po_rsi = xr.open_dataset(rsi_predobs)
         else:
@@ -96,15 +93,15 @@ def load_exp_data(
 
     # --- Load EnsPerturbations
     if load_ens_perts:
-        rsi_pert = Path(f"{base_dir}/{expname}/data_assim/run/output/graspRestartIn.EnsPerts.nc")
-        rso_pert = Path(f"{base_dir}/{expname}/data_assim/run/output/graspRestartOut.EnsPerts.nc")
+        rsi_pert = Path(f"{base_dir}/{expname}/sim_output/graspRestartIn.EnsPerts.nc")
+        rso_pert = Path(f"{base_dir}/{expname}/sim_output/graspRestartOut.EnsPerts.nc")
         
         if rso_pert.is_file():
             ds_rso_pert = load_ds(rso_pert)
         else:
             ds_rso_pert = None
             print(f"WARNING: graspRestartOut.EnsPerts.nc does not exist for: {expname}")
-            print(f"{base_dir}/{expname}/data_assim/run/output/graspRestartOut.EnsPerts.nc\n")
+            print(f"{base_dir}/{expname}/sim_output/graspRestartOut.EnsPerts.nc\n")
         if rsi_pert.is_file():
             ds_rsi_pert = load_ds(rsi_pert)
         else:
@@ -153,7 +150,7 @@ def load_spectra_dataset(expnames: dict, base_dir: Path, varname:str="M"):
     ds_increment = xr.Dataset()
 
     for key, expname in expnames.items():
-        datadir = base_dir / expname / "data_assim" / "run" / "output"
+        datadir = base_dir / expname / "sim_output"
 
         # --- Load ensemble-perturbation spectra
         file_enspert = datadir / "spectra_ensemble_perturbation.nc"
@@ -178,17 +175,18 @@ def load_spectra_dataset(expnames: dict, base_dir: Path, varname:str="M"):
 def load_experiments(
         base_dir:Path,
         expnames:dict, 
-        x_slice:slice,
-        y_slice:slice,
-        z_slice:slice,
-        adjust_coords_for_rs:bool=False, 
-        round_predobs_to=None,
-        load_simdata_field=True,
-        load_predobs=True,
-        load_restart_fields=True,
-        load_ens_perts=True,
-        load_spectra=True,
-        cutoff_time:datetime|None=None
+        obs_file:Path,
+        adjust_coords_for_rs: bool = False, 
+        round_predobs_to: str|None = None,
+        load_simdata_field: bool = True,
+        load_predobs: bool = True,
+        load_restart_fields: bool = True,
+        load_ens_perts: bool = True,
+        load_spectra: bool = True,
+        y_slice: slice = slice(None,None),
+        x_slice: slice = slice(None,None),
+        z_slice: slice = slice(None,None),
+        cutoff_time: datetime | None = None,
         ):
     
 
@@ -196,23 +194,26 @@ def load_experiments(
     
 
     # --- Load Simulation Output
-    for key, name in expnames.items():
+    for name in expnames:
         exp_data = load_exp_data(
-            name, base_dir, x_slice, y_slice, z_slice,
-            adjust_coords_for_rs, round_predobs_to,
-            load_simdata_field, load_predobs,
-            load_restart_fields, load_ens_perts,
-            cutoff_time, 
+            expname=name, 
+            base_dir=base_dir, 
+            xslice=x_slice, 
+            yslice=y_slice, 
+            zslice=z_slice,
+            adjust_coords_for_rs=adjust_coords_for_rs, 
+            round_predobs_to=round_predobs_to,
+            load_simdata_field=load_simdata_field, 
+            load_predobs=load_predobs,
+            load_restart_fields=load_restart_fields, 
+            load_ens_perts=load_ens_perts,
+            cutoff_time=cutoff_time, 
         )
-        datadict[key] = exp_data
+        datadict[name] = exp_data
     
     # --- Load Observation Output
-    random_expname = next(iter(expnames.values())) # NOTE: Observation are the same for all ens-innit methods!!
-    obs_path = f"{base_dir}/{random_expname}/obs_data"
-    ds_assim = xr.open_dataset(f"{obs_path}/assimilated/ds_obs_assim.nc")
-    ds_valid = xr.open_dataset(f"{obs_path}/validation/ds_os_valid.nc")
-    datadict["obs_assim"] = ds_assim
-    datadict["obs_valid"] = ds_valid
+    ds_obs = xr.open_dataset(obs_file)
+    datadict["observations"] = ds_obs
     
 
     if load_spectra:
@@ -251,13 +252,13 @@ def set_zlevels_predobs(
 # ============================================
 
 def flatten_obs_pred_pair_stationwise(
-    y_obs: xr.DataArray,
+    da_obs: xr.DataArray,
     Hxf: xr.DataArray,
-    min_finite_members: int = 20,
+    min_finite_members: int = 15,
     control:bool = False
 ):
     """
-    Robust flattening when y_obs and Hxf may have different zf grids/lengths.
+    Robust flattening when da_obs and Hxf may have different zf grids/lengths.
 
     For each station:
       1) Keep only zf levels where obs is finite
@@ -265,8 +266,8 @@ def flatten_obs_pred_pair_stationwise(
       3) Extract y and Hx and concatenate across stations
 
     Inputs at time t:
-      y_obs dims: (station, zf)
-      Hxf   dims: (station, zf, member)
+      da_obs dims: (station, zf)
+      Hxf   dims: (station, zf, ensemble)
 
     Returns:
       y : (N,)
@@ -274,21 +275,25 @@ def flatten_obs_pred_pair_stationwise(
       nr_NaN : int
     """
     # Ensure consistent dim order
-    y_obs = y_obs.transpose("station", "zf")
+
+
+    da_obs = da_obs.transpose("station", "zf")
     if control:
         Hxf = Hxf.transpose("station", "zf")
     else:
-        Hxf = Hxf.transpose("station", "zf", "member")
+        Hxf = Hxf.transpose("station", "zf", "ensemble", ...)
 
-    lidar_name = []
+    obs_name_list = []
     yobs_list = []
     Hxf_list = []
     zf_list = []
     nr_NaN = 0
 
-    for st in y_obs["station"].values:
-        y_st = y_obs.sel(station=st)     # (zf,)
-        x_st = Hxf.sel(station=st)       # (zf, member)
+    print("TEST1")
+
+    for st in da_obs["station"].values:
+        y_st = da_obs.sel(station=st)     # (zf,)
+        x_st = Hxf.sel(station=st)       # (zf, ensemble)
 
         # 1) keep only finite obs zf levels
         ok = np.isfinite(y_st.values)
@@ -328,16 +333,16 @@ def flatten_obs_pred_pair_stationwise(
             raise ValueError(f"NaNs in predicted observations after filtering at station={st}")
 
         # Convert lidat string to a list of length n_i with, where all elements are same obs-name
-        lidars = [st] * y_keep.shape[0]
+        obs_names = [st] * y_keep.shape[0]
 
-        lidar_name.append(lidars)
+        obs_name_list.append(obs_names)
         yobs_list.append(y_keep)
         Hxf_list.append(x_keep)
         zf_list.append(z_keep)
 
 
 
-    obs_stn = np.concatenate(lidar_name, axis=0)
+    obs_stn = np.concatenate(obs_name_list, axis=0)
     y_out = np.concatenate(yobs_list, axis=0)
     x_out = np.concatenate(Hxf_list, axis=0)
     z_out = np.concatenate(zf_list, axis=0)
@@ -347,14 +352,21 @@ def flatten_obs_pred_pair_stationwise(
 
 
 
-def get_innovation_df(da_hxf:xr.DataArray, da_obs:xr.DataArray, control:bool=False):
+def get_innovation_df(
+        da_hxf:xr.DataArray, 
+        da_obs:xr.DataArray, 
+        control:bool=False,
+        ASSIM_STEPS = 6,
+        ASSIM_WINDOW = 1800, #seconds
+        DT_OBS = 1800, # second
+        ):
     """
     This function collects innovations over all timesteps, levels and obs-stations 
     in a pd.DataFrame.
     It does so for a specific case and ensemble-innit method.
 
     Inputs at time t:
-      da_hxf xr.DataArray:   dims: (station, zf, member, time)
+      da_hxf xr.DataArray:   dims: (station, zf, ensemble, time)
       Hda_obs xr.DataArray:  dims: (station, zf, time)
 
     Returns:
@@ -362,27 +374,24 @@ def get_innovation_df(da_hxf:xr.DataArray, da_obs:xr.DataArray, control:bool=Fal
         [Hxf_m<ID> (all K-ens members) | y (observation) | zf (int) | time (datetime) | obs_station (name of station) | time_index10 (how many 10min steps after t0)]
     """
 
-    times = da_hxf.time.values
-    lidars = da_obs.station.values
+    obs_times = da_obs.time.values
+    obs_names = da_obs.station.values
 
     nan_dict = {}
-
-    ASSIM_STEPS = 6
-    ASSIM_WINDOW = 1800 #seconds
-    DT_OBS = 600 # second
 
     OBS_PER_WINDOW = int(ASSIM_WINDOW/DT_OBS)
 
     rows = []
-    for idx, t in enumerate(times):
+    for idx, t in enumerate(obs_times):
+        print("here ", t)
 
         # --- Select predicted-obs (SimData) for slected-stations and at given time t
-        Hxf_t = da_hxf.sel(time=t, station=lidars)
-        obs_t = da_obs.sel(time=t)
+        Hxf_t = da_hxf.sel(station=obs_names).sel(method="nearest", tolerance=pd.Timedelta("5min"))
+        da_obs_t = da_obs.sel(time=t, method="nearest", tolerance=pd.Timedelta("5min"))
 
         # --- Flatten Obs and PredObs at given time t across all stations and heights zf
-        output = flatten_obs_pred_pair_stationwise(obs_t, Hxf_t, control=control)
-        y_out, Hxf_out, zf_out, lidar_name, nr_NaN = output
+        output = flatten_obs_pred_pair_stationwise(da_obs_t, Hxf_t, control=control)
+        y_out, Hxf_out, zf_out, obs_names, nr_NaN = output
 
 
         # --- Create pd.DataFrame with flattened yo and H(x)
@@ -396,7 +405,7 @@ def get_innovation_df(da_hxf:xr.DataArray, da_obs:xr.DataArray, control:bool=Fal
         df_t["y"]            = y_out
         df_t["zf"]           = zf_out
         df_t["time"]         = pd.Timestamp(t.values) if hasattr(t, "values") else t
-        df_t["obs_station"]  = lidar_name
+        df_t["obs_station"]  = obs_names
         df_t["time_index10"] = idx+1
         df_t["assim_step"]   = np.where(df_t["time_index10"].between(1, OBS_PER_WINDOW*ASSIM_STEPS), 
                                         ((df_t["time_index10"] - 1) // OBS_PER_WINDOW + 1),
@@ -411,7 +420,11 @@ def get_innovation_df(da_hxf:xr.DataArray, da_obs:xr.DataArray, control:bool=Fal
         
         # Keep track of NaN values
         nan_dict[t] = nr_NaN
-    return pd.concat(rows, ignore_index=True)
+
+    print("\n\nIs this error here\n\n")
+    df = pd.concat(rows, ignore_index=True)
+    print("NO!")
+    return df
 
 
 
@@ -423,17 +436,16 @@ def get_innovation_df(da_hxf:xr.DataArray, da_obs:xr.DataArray, control:bool=Fal
 
 
 def load_case_data_dfinnov(
-        date_list, 
+        base_dir:Path,
         expnames:dict,
         variable:str,
-        obs_type:str|None,
-        x_slice=slice(64, 192),
-        y_slice=slice(76, 204),
-        z_slice=slice(0,23),
-        round_predobs_to:str|None=None, #"10min",
+        obs_file: Path,
+        x_slice=slice(None, None),
+        y_slice=slice(None, None),
+        z_slice=slice(None, None),
+        round_predobs_to: str|None=None, #"10min",
         adjust_coords_for_rs:bool=False,
         load_control=True, 
-        control_method="rn",
         cutoff_time: datetime | timedelta | None = None,
         load_simdata_field:bool=True,
         load_predobs:bool=True,
@@ -448,41 +460,33 @@ def load_case_data_dfinnov(
     # Load Ouput Fields
     # ------------------
     datadict = {}
-
     spectra_dict = {}
 
-    for dtime in date_list:
-        # --- TIMESTAMP
-        tstamp = datetime.strptime(dtime, "%Y%m%d_%H")
+    output = load_experiments(
+        base_dir=base_dir, 
+        expnames=expnames,
+        obs_file=obs_file,
+        x_slice=x_slice,
+        y_slice=y_slice,
+        z_slice=z_slice,
+        adjust_coords_for_rs = adjust_coords_for_rs, 
+        round_predobs_to     = round_predobs_to,
+        load_simdata_field   = load_simdata_field,
+        load_predobs         = load_predobs,
+        load_restart_fields  = load_restart_fields,
+        load_ens_perts       = load_ens_perts,
+        load_spectra         = load_spectra,
+        cutoff_time          = cutoff_time
+        )
 
-        time_folder = tstamp.strftime('%Y%m%d_%H')
-        base_dir = Path(f"/home/maxf/projects/REFORM/grasp/data_assimilation/ensemble4da/experiments/{time_folder}")
+    if load_spectra:
+        datadict, ds_spectra_enspert, ds_spectra_increment = output
+        spectra_dict = dict(enspert=ds_spectra_enspert,
+                                    increment=ds_spectra_increment)
+    else:
+        datadict = output
 
-
-        output = load_experiments(
-            base_dir=base_dir, 
-            expnames=expnames,
-            x_slice=x_slice,
-            y_slice=y_slice,
-            z_slice=z_slice,
-            adjust_coords_for_rs = adjust_coords_for_rs, 
-            round_predobs_to     = round_predobs_to,
-            load_simdata_field   = load_simdata_field,
-            load_predobs         = load_predobs,
-            load_restart_fields  = load_restart_fields,
-            load_ens_perts       = load_ens_perts,
-            load_spectra         = load_spectra,
-            cutoff_time          = cutoff_time
-            )
-
-        if load_spectra:
-            exp_dict, ds_spectra_enspert, ds_spectra_increment = output
-            spectra_dict[dtime] = dict(enspert=ds_spectra_enspert,
-                                       increment=ds_spectra_increment)
-        else:
-            exp_dict = output
-
-        datadict[dtime] = exp_dict
+   
 
 
     # ----------------------------
@@ -490,48 +494,33 @@ def load_case_data_dfinnov(
     # ----------------------------
     innov_dict = {}
     if load_predobs and calc_innov:
-        if obs_type is None:
-            raise ValueError("To calculate Innovations stats, specify if validation of assimilation obs. should be used with kword: 'obs_type'!!!")
         # --- Create dict with all innovations
         # --- Loop over all methods
         for ensgen in list(expnames):
-            df_list = []
-            # --- Loop over all cases
-            for date, casedict in datadict.items():
-                # Set Data
-                da_hxf = casedict[ensgen]["ds_po_sd_ens"][variable]
-                da_obs = casedict[obs_type][variable]
-                
-                # Compute innov dataframe
-                innov_df = get_innovation_df(da_hxf=da_hxf, da_obs=da_obs)
+           
+            da_hxf = datadict[ensgen]["ds_po_sd_ens"][variable]
+            da_obs = datadict["observations"][variable]
+            
+            # Compute innov dataframe
+            df_ensgen = get_innovation_df(da_hxf=da_hxf, da_obs=da_obs)
 
-                # Compute Ensemble Mean
-                ens_mask = innov_df.columns.str.contains('Hx*')
-                ens_avg = innov_df.loc[:,ens_mask].mean(axis=1)
-                ens_spd = innov_df.loc[:,ens_mask].std(axis=1)
-                innov_df["Hxf_bar"] = ens_avg
-                innov_df["Hxf_std"] = ens_spd
-                df_list.append(innov_df)
-            # Concat to one large dataset
-            df_ensgen = pd.concat(df_list, ignore_index=True)
+            # Compute Ensemble Mean
+            ens_mask = df_ensgen.columns.str.contains('Hx*')
+            ens_avg = df_ensgen.loc[:,ens_mask].mean(axis=1)
+            ens_spd = df_ensgen.loc[:,ens_mask].std(axis=1)
+            df_ensgen["Hxf_bar"] = ens_avg
+            df_ensgen["Hxf_std"] = ens_spd
+            
             innov_dict[ensgen] = df_ensgen
+
 
         # --- Load Control case
         if load_control:
-            ensgen=control_method
-            df_list = []
-            for date, casedict in datadict.items():
-                # Set Data
-                da_hxf = casedict[ensgen]["ds_po_sd_ctrl"][variable]
-                da_obs = casedict[obs_type][variable]
-                # Compute innov dataframe
-                innov_df = get_innovation_df(da_hxf=da_hxf, da_obs=da_obs, control=True)
-
-                df_list.append(innov_df)
-            df_ensgen = pd.concat(df_list, ignore_index=True)
+            ensgen=expnames[0]
+            da_hxf = datadict[ensgen]["ds_po_sd_ctrl"][variable]
+            da_obs = datadict["observations"][variable]
+            df_ensgen = get_innovation_df(da_hxf=da_hxf, da_obs=da_obs, control=True)
             innov_dict["ctrl"] = df_ensgen
-
-
 
     if len(datadict) == 1:
         datadict = datadict[list(datadict)[0]]

@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import sys
 sys.path.insert(1, '../../')
 from data_assim.assimilation_nanny import AssimilationConductor
-
+from simdata_processing.save_ensemble import save_summary_ds
 
 
 # --- Specify truth
@@ -19,9 +19,14 @@ ds_obs_true = xr.open_dataset(OBS_FILE)
 config_path = Path("/home/maxf/projects/REFORM/pgradDA/src/run_experiments")
 
 ## Experiment dir
-base_dir = Path("/home/maxf/projects/REFORM/pgradDA/grasp/case_study/run_single") #/2026/02/10/00
-sim_ctrl_dir = base_dir / "2026/02/10/00"
+base_dir = Path("/home/maxf/projects/REFORM/pgradDA/grasp/case_study")
+# exp_name = "run_ensemble"
+exp_name = "run_single"
 
+# ----------------------------------------------------------------
+# -- Base direction of experiment
+exp_dir = base_dir / exp_name
+# ----------------------------------------------------------------
 
 
 # ===================================
@@ -29,11 +34,13 @@ sim_ctrl_dir = base_dir / "2026/02/10/00"
 # ===================================
 conductor = AssimilationConductor(
     config_path=config_path,
-    simdir_ctrl=sim_ctrl_dir,
-    base_dir=base_dir,
+    base_dir=exp_dir,
     ztop_assim_idx= 30, #30,
     obs_file=OBS_FILE,
     save_weights=False,
     gpu=True,   
 )
-conductor()
+conductor(do_assimilation=True)
+
+save_summary_ds(exp_dir, obs_file=OBS_FILE, spectra_analysis=False, spectra_enspert=False)
+print(f"FINISHED EVERYTHING IN: {exp_dir}")
