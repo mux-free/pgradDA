@@ -37,7 +37,7 @@ def get_aspire_image(version="newest", verbose=0):
 
 
 def aspire(
-    namelist_file: str | Path,
+    namelist_file: Path,
     aspire_version: str = "newest",
     singularity_image=None,
     verbose: int = 0,
@@ -221,12 +221,6 @@ def modify_namelist_file(
             "up,vp,wp,qtp,Thlp,qrp,t_soilp,q_soilp,nutm,nutb"
         )
     
-        if read_restart_active:
-            patch["READRESTART"] = {
-                "file": restart_input,
-                "lactive": True,
-                "var": restart_vars,
-            }
     
         patch = {
             "RUN": {
@@ -240,6 +234,13 @@ def modify_namelist_file(
             },
         }
     
+        if read_restart_active:
+            patch["READRESTART"] = {
+                "file": restart_input,
+                "lactive": True,
+                "var": restart_vars,
+            }
+
     else:
         print("Only Simdata relevant stuff is considered")
         patch = {}
@@ -249,7 +250,7 @@ def modify_namelist_file(
             "dtav": 30,
             "dtwrite": 600,
             "lactive": True,
-            "var": 'u[:,:,:], v[:,:,:], M[:,:,:]'
+            "var": "u[:,:,:], v[:,:,:]"
         }
 
 
@@ -259,9 +260,8 @@ def modify_namelist_file(
 
     import re
     text = tmp_file.read_text()
-
     # Force only these section headers to uppercase
-    for section in ("RUN", "WRITERESTART", "READRESTART", "STATSIMDATA"):
+    for section in ("RUN", "STATSIMDATA", "WRITERESTART", "READRESTART"):
         text = re.sub(
             rf"(?im)^&{section}\b",
             f"&{section}",
@@ -274,8 +274,9 @@ def modify_namelist_file(
     tmp_file.write_text(text)
 
     # --- 3) Rename new nml-file  and save old namelist files for debugging purposes
-    
-    if not only_modify_simdata:
+    if only_modify_simdata:
+        tmp_file.rename(namelist_file)
+    else:
         archive_name = namelist_file.parent / f"graspIn_{timetag_prev}.meso.nml"
         namelist_file.rename(archive_name)
         tmp_file.rename(namelist_file)
@@ -284,10 +285,10 @@ def modify_namelist_file(
 
 
 def transfer_vars_to_graspInNWP(
-    base_file: str | Path,
-    member_file: str | Path,
+    base_file: Path,
+    member_file: Path,
     variables: list[str],
-    output_file: str | Path,
+    output_file: Path,
 ) -> Path:
     """
     Create output_file as an exact copy of base_file, then replace selected variable 
@@ -296,10 +297,6 @@ def transfer_vars_to_graspInNWP(
     Only the numerical data of "variables" are changed, but NetCDF structure 
     and metadata come entirely from base_file.
     """
-
-    base_file = Path(base_file)
-    member_file = Path(member_file)
-    output_file = Path(output_file)
 
     replacement_data = {}
     target_dims = {}

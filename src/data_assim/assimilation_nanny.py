@@ -3,7 +3,7 @@ import pandas as pd
 import yaml
 from datetime import datetime, timedelta
 from pathlib import Path
-
+import shutil
 # Add .../REFORM/src to sys.path, s.t. i can improt my own modelus!!
 
 
@@ -29,15 +29,14 @@ from .letkf_interface import run_letkf
 
 class ForwardOperator(MemberNanny):
     def __init__(self, 
-                 context: ExperimentContext, 
                  simdir_ctrl: Path,
                  tstart_window: datetime,
                  dt_window: int, 
-                 ensemble_nr: int, 
+                 ensemble_nr: int | None, 
                  verbose: int = 1,
                  ):
         
-        super().__init__(context, simdir_ctrl, ensemble_nr, verbose)
+        super().__init__(simdir_ctrl, ensemble_nr, verbose)
         self.tstart_window: datetime = tstart_window
         self.dt_window: float = dt_window
 
@@ -51,7 +50,7 @@ class ForwardOperator(MemberNanny):
         
         # --- 1) Update timing variables according to new cycle (using tstart_window and dt_window)
         self.update_timing(tstart_window=self.tstart_window, dt_run=self.dt_window)
-        
+
         # --- 2) Modify and save new namelist file according to timing vaariables  
         utils_aspire.modify_namelist_file( # type: ignore
             namelist_file=f_namelist,
@@ -94,11 +93,38 @@ class AssimilationOperator:
             self.apply_rtpp = False
 
 
+
+
+    def copy_restart_inout(
+            self,
+            fname_in: str = "graspOutRestart",
+            fname_out: str = "graspInRestart",
+            file_appendix: str = ".meso.nc"
+            ):
+        time_string = self.tda.strftime("%Y%m%d%H%M")
+        # --- Loop through all ensembles
+        nmembers = self.ctx.n_members
+        for i in range(1, nmembers+1):
+            fdir = self.ctx.simdir_ctrl / f"ensemble_{str(i).zfill(2)}"
+            fname_old = f"{fname_in}_{time_string}{file_appendix}"
+            fname_new = f"{fname_out}_{time_string}{file_appendix}"
+            fin  = fdir / fname_old
+            fout = fdir / fname_new
+            
+            if not fin.is_file():
+                raise ValueError(f"Restart file: {fin} does not exist!")
+        
+            shutil.copy(fin, fout)
+
+
+
+
     def insert_analysis_section(
             self,
             ds_restart: xr.Dataset,
             ds_analysis: xr.Dataset,
-            ztop_idx:int,
+            ztop_idx:int|None,
+            vertical_coord: str = "zf",
             ):
         """ 
         This function inserts the assimialted sub-domain back into the full domain 
@@ -116,17 +142,57 @@ class AssimilationOperator:
             arr = arr.transpose(*keep_dims_in_order)
 
             # Make sure shapes match the indexer region (otherwise make it fail if sth is off)
-            tgt_shape = out[var].isel(zf=slice(None,ztop_idx)).shape
+            tgt_shape = out[var].isel({vertical_coord: slice(None,ztop_idx)}).shape
             if arr.shape != tgt_shape:
                 raise ValueError(
                     f"Shape mismatch for {var}: analysis {arr.shape} vs target slice {tgt_shape} "
                     f"(dims target={target_dims}, analysis={arr.dims})")
             
             # Assign back into the region (isel for positional assignment)
-            out[var].isel(zf=slice(None,ztop_idx))[:] = arr
+            out[var].isel({vertical_coord:slice(None,ztop_idx)})[:] = arr
 
         return out
 
+
+    def overwrite_nwp_with_analysis(
+            self,
+            ds_nwp_post: xr.Dataset,
+            ):
+
+        folder_struct = self.ctx.t0_spinup.strftime("%Y/%m/%d/%H")
+        id_membs = ds_nwp_post.ensemble.values
+        
+        for id_memb in id_membs:
+            
+            # --- Load original dataset
+            nwp_path = self.ctx.simdir_ctrl / f"ensemble_{str(id_memb).zfill(2)}"
+            ds_og = xr.open_dataset(f"{nwp_path}/graspInNWP.meso.nc")
+            ds_nwpin = ds_og.copy(deep=True)
+
+            # -- Select correct member and slices of origi NWPIn and of posterior
+            ds_A = (ds_nwp_post
+                    .sel(ensemble=id_memb)
+                    .rename({"xf":"x", "yf":"y", "zf":"z"})
+                    .squeeze(dim=["z", "time"])
+                    )
+
+            # -- Modify pressure gradient at current time and second highest level
+            z, t = ds_A.z.item(), ds_A.time.item()
+            ds_nwpin["dpdx"].loc[{'z': z, 'time': t}] = ds_A["dpdx"]
+            ds_nwpin["dpdy"].loc[{'z': z, 'time': t}] = ds_A["dpdy"]
+
+            # -- Save back to file
+            ds_nwpin.to_netcdf(f"{nwp_path}/nwp_tmp.meso.nc")
+            ds_prior = ds_og.sel(time=t).expand_dims(time=[t])
+            ds_prior.to_netcdf(f"{nwp_path}/graspInNWP.prior.{t.strftime('%Y%m%d%H%M')}.nc")
+
+            # -- Save dataset back
+            ds_nwpin_full = utils_aspire.transfer_vars_to_graspInNWP(
+                base_file = Path(f"{nwp_path}/graspInNWP.meso.nc"),
+                member_file = Path(f"{nwp_path}/nwp_tmp.meso.nc"),
+                variables = ["dpdx", "dpdy"],
+                output_file = Path(f"{nwp_path}/graspInNWP.meso.nc"),
+            )
 
 
 
@@ -151,7 +217,8 @@ class AssimilationOperator:
     def __call__(
             self, 
             ds_obs:xr.Dataset, 
-            ztop_assim:int,
+            state_vars: list[str],
+            ztop_assim:int|None,
             do_assimilation:bool, 
             weight_save_path:str|None=None,
             return_posterior:bool=False,
@@ -163,54 +230,88 @@ class AssimilationOperator:
             2) DA update step
         """
         
+
+        nwp_assim = True if ("dpdx" in state_vars or "dpdy" in state_vars) else False
+        fname = "graspOutRestart" if not nwp_assim else "graspInNWP"
+        fname_psudo = "graspOutRestart"
+
         ## --- 1) LOAD GRASP data
         ens_loader = EnsembleLoader(
             data_folder=self.ctx.simdir_ctrl,
             timestamp=self.tda,
             nmembers=self.ctx.n_members)
-        ds_prior = ens_loader(fname_base="graspOutRestart")
+        ds_prior = ens_loader(fname_base=fname)
         
+        
+        if nwp_assim:
+            zm2 = ds_prior.isel(z=-1).z.item()
+            ds_prior_small = (ds_prior
+                  .rename({"x":"xf", "y":"yf", "z":"zf"})
+                  .isel(zf=-2)
+                  .expand_dims(zf=[zm2])
+                  )
+            vert_loc = None
+        else:
+            ds_prior_small = ds_prior.isel(zf=slice(None,ztop_assim))
+            vert_loc = self.ctx.vert_loc
+        
+        # Load pseudo state for pred-obs
+        ds_prior_pseudo = ens_loader(fname_base=fname_psudo)
+        ds_prior_pseudo = ds_prior_pseudo.isel(zf=slice(None,ztop_assim))
+
+
+
         if do_assimilation:
             # --- 2) Data assimilation Update
-            ds_prior_small = ds_prior.isel(zf=slice(None,ztop_assim))
             ds_post = run_letkf(
                 ds_prior=ds_prior_small,
+                ds_prior_pseudo=ds_prior_pseudo,
                 ds_obs=ds_obs, 
                 loc_radius_m=self.ctx.radius,
-                vert_loc=self.ctx.vert_loc,
+                vert_loc=vert_loc,
                 inflation=self.ctx.inflation,
-                R_std=self.ctx.r2,
-                state_vars=self.ctx.state_vars,
-                varnames=self.ctx.state_vars,
+                R_std=self.ctx.obs_std,
+                state_vars=state_vars,
+                obs_vars=self.ctx.obs_vars,
                 gpu=self.gpu,
-                weight_save_path=weight_save_path)
-
+                weight_save_path=weight_save_path
+                )
 
             # --- 3) Optional: Relaxation To Prior Perturbation using alpha=0.75
             if self.apply_rtpp:
                 # if isinstance(self.rttp_factor, float):
                 ds_post = self.rtpp(ds_prior_small, ds_post, alpha=self.rttp_factor)
-
-
-
+            
             # --- 5) Project data back s.t. it fits with Restart-file structure 
-            ds_post = self.insert_analysis_section(
-                ds_restart=ds_prior.squeeze(),      # the big one you want to update
-                ds_analysis=ds_post,           # analysis on the small window
-                ztop_idx=ztop_assim
-            )            
-            # --- 5) Project data back s.t. it fits with Restart-file structure 
-            ds_post2 = ens_loader.restagger_u_v(ds=ds_post)
+            if nwp_assim:
+                # ==================
+                # NWP assim
+                # ==================
+                self.overwrite_nwp_with_analysis(ds_nwp_post=ds_post)
+                self.copy_restart_inout()
+            
+            else:
+                # ==================
+                # Meso assim
+                # ==================
+                ds_post = self.insert_analysis_section(
+                    ds_restart=ds_prior.squeeze(),      # the big one you want to update
+                    ds_analysis=ds_post,           # analysis on the small window
+                    ztop_idx=ztop_assim
+                )            
+                # --- 5) Project data back s.t. it fits with Restart-file structure 
+                ds_post = ens_loader.restagger_u_v(ds=ds_post)
+
+                # --- 6) Save Posterior state as new input state
+                ens_loader.save_posterior_ensemble(ds_post=ds_post)
 
         else:
-            ds_post2=ds_prior
-
-        # --- 6) Save Posterior state as new input state
-        ens_loader.save_posterior_ensemble(ds_post=ds_post2)
+            ds_post=ds_prior
 
         if return_posterior:
-            return ds_post2
+            return ds_post
             
+
 
 
 
@@ -290,8 +391,8 @@ class AssimilationConductor:
         # --- FORWARD Run Members
         iterator = range(1, self.ctx.n_members + 1)if ensemble_run else range(0,1)
         for i in iterator:
+            print(f"SpinUp for member {i:2d}")
             forward = ForwardOperator(
-                context=self.ctx, 
                 simdir_ctrl=self.ctx.simdir_ctrl,
                 ensemble_nr=i, 
                 tstart_window=self.ctx.t0_spinup,
@@ -304,7 +405,7 @@ class AssimilationConductor:
                 fnml = self.ctx.simdir_ctrl / "graspIn.meso.nml"
             forward(f_namelist=fnml, read_restart=False, write_restart=True)
 
-        
+
     def forward_step(
             self, 
             t_init: datetime,
@@ -315,7 +416,6 @@ class AssimilationConductor:
         iterator = range(1, self.ctx.n_members + 1)if ensemble_run else range(0,1)
         for i in iterator:
             forward = ForwardOperator(
-                context=self.ctx, 
                 simdir_ctrl=self.ctx.simdir_ctrl,
                 ensemble_nr=i, 
                 tstart_window=t_init, 
@@ -394,22 +494,25 @@ class AssimilationConductor:
         
         assimilation(
             ds_obs=ds_obs_da, 
+            state_vars=self.ctx.state_vars,
             ztop_assim=ztop_assim, 
             do_assimilation=do_assimilation, 
             return_posterior=return_posterior, 
             weight_save_path=weight_save_path)
 
 
-    def __call__(self, do_assimilation:bool):
+    def __call__(self, do_assimilation:bool, run_control:bool):
 
         # --- 1) Run Spin-Up (if not done already)
         print("\nRun SpinUp\n----------")
-        self.spinup(ensemble_run=False) # for control
+        if run_control:
+            self.spinup(ensemble_run=False) # for control
         self.spinup() # for ensembles
 
-        # --- 2) Loop over assimilation schedule and perform data-assimilation tasks
+        # --- 2) Loop over acssimilation schedule and perform data-assimilation tasks
         for idx, t_assim in enumerate(self.assim_schedule):
-            print(f"Assimilation step {idx+1:2d}")
+            
+            print(f"\nAssimilation step {idx+1:2d}")
             self.assim_step(
                 ztop_assim=self.ztop_assim_idx, 
                 do_assimilation=do_assimilation,
@@ -422,14 +525,16 @@ class AssimilationConductor:
             else:
                 t0 = (t_assim).strftime("%Y-%m-%d %H:%M")
                 t1 = (t_assim + timedelta(seconds=self.ctx.dt_da)).strftime("%Y-%m-%d %H:%M\n")
-                print(f"Forward Step from {t0} to {t1}\n")
+                print(f"\nForward Step of ensemble from {t0} to {t1}\n")
                 self.forward_step(t_init=t_assim)
-                self.forward_step(t_init=t_assim, ensemble_run=False)
+                if run_control:
+                    self.forward_step(t_init=t_assim, ensemble_run=False)
 
         # --- 3) Forecast step
-        print(f"Forecast step for a lead time of: {self.ctx.dt_pred/3600:.2f} hours")
+        print(f"\nForecasting with lead time of: {self.ctx.dt_pred/3600:.1f} hours")
         t0_forecast = self.assim_schedule[-1]
-        self.forecast_step(tinit_forecast=t0_forecast, ensemble_run=False)
+        if run_control:
+            self.forecast_step(tinit_forecast=t0_forecast, ensemble_run=False)
         self.forecast_step(tinit_forecast=t0_forecast, ensemble_run=True)
 
 

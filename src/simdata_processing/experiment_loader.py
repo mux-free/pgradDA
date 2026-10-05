@@ -18,6 +18,7 @@ def load_exp_data(
         load_predobs:bool,
         load_restart_fields:bool,
         load_ens_perts:bool, 
+        load_control: bool,
         yslice:slice=slice(None,None), 
         xslice:slice=slice(None,None),
         zslice:slice=slice(None,None),
@@ -43,15 +44,17 @@ def load_exp_data(
 
     # --- LOAD SimData (EnsembleMean and Control)
     if load_simdata_field:
-        datadict["ds_da"]   = load_ds(f"{base_dir}/{expname}/sim_output/graspOutSimdata.ensemble.nc")
-        datadict["ds_ctrl"] = load_ds(f"{base_dir}/{expname}/sim_output/graspOutSimdata.control.nc")
+        datadict["ds_da"] = load_ds(f"{base_dir}/{expname}/sim_output/graspOutSimdata.ensemble.nc")
+        if load_control:
+            datadict["ds_ctrl"] = load_ds(f"{base_dir}/{expname}/sim_output/graspOutSimdata.control.nc")
 
     # --- Load Restart files
     if load_restart_fields:
-        datadict["ds_rsi"]      = load_ds(f"{base_dir}/{expname}/sim_output/graspRestartIn.ensemble.nc")
-        datadict["ds_rso"]      = load_ds(f"{base_dir}/{expname}/sim_output/graspRestartOut.ensemble.nc")
-        datadict["ds_rsi_ctrl"] = load_ds(f"{base_dir}/{expname}/sim_output/graspRestartIn.control.nc")
-        datadict["ds_rso_ctrl"] = load_ds(f"{base_dir}/{expname}/sim_output/graspRestartOut.control.nc")
+        datadict["ds_rsi"] = load_ds(f"{base_dir}/{expname}/sim_output/graspRestartIn.ensemble.nc")
+        datadict["ds_rso"] = load_ds(f"{base_dir}/{expname}/sim_output/graspRestartOut.ensemble.nc")
+        if load_control:
+            datadict["ds_rsi_ctrl"] = load_ds(f"{base_dir}/{expname}/sim_output/graspRestartIn.control.nc")
+            datadict["ds_rso_ctrl"] = load_ds(f"{base_dir}/{expname}/sim_output/graspRestartOut.control.nc")
         
 
     # --- Load Predicted-Observations (Restart-Out and Simdata)
@@ -76,19 +79,31 @@ def load_exp_data(
         if round_predobs_to is not None:
             if not isinstance(round_predobs_to, str): raise ValueError(f"round_predobs_to must be string indicating resample interval (e.g. '10min')")
             ds_po_sd  = ds_po_sd.resample(time=round_predobs_to, label="right", closed="right").mean() 
-        ds_po_sd_ens, ds_po_sd_ctrl  = split_control(ds_po_sd)
-        ds_po_rso_ens,ds_po_rso_ctrl = split_control(ds_po_rso)
+        
+        if load_control:
+            ds_po_sd_ens, ds_po_sd_ctrl  = split_control(ds_po_sd)
+            ds_po_rso_ens,ds_po_rso_ctrl = split_control(ds_po_rso)
+        else:
+            ds_po_sd_ens = ds_po_sd
+            ds_po_rso_ens = ds_po_rso
+
+        
         if ds_po_rsi is not None:
-            ds_po_rsi_ens,ds_po_rsi_ctrl = split_control(ds_po_rsi)
+            if load_control:
+                ds_po_rsi_ens,ds_po_rsi_ctrl = split_control(ds_po_rsi)
+            else:
+                ds_po_rsi_ens = ds_po_rsi
+
         else:
             ds_po_rsi_ens,ds_po_rsi_ctrl = None, None
 
         datadict["ds_po_sd_ens"]  = ds_po_sd_ens
-        datadict["ds_po_sd_ctrl"] = ds_po_sd_ctrl
         datadict["ds_po_rso_ens"] = ds_po_rso_ens
-        datadict["ds_po_rso_ctrl"]= ds_po_rso_ctrl
         datadict["ds_po_rsi_ens"] = ds_po_rsi_ens
-        datadict["ds_po_rsi_ctrl"]= ds_po_rsi_ctrl
+        if load_control:
+            datadict["ds_po_sd_ctrl"] = ds_po_sd_ctrl
+            datadict["ds_po_rso_ctrl"]= ds_po_rso_ctrl
+            datadict["ds_po_rsi_ctrl"]= ds_po_rsi_ctrl
 
 
     # --- Load EnsPerturbations
@@ -115,8 +130,9 @@ def load_exp_data(
         xvals, yvals = datadict["ds_da"]["xf"].values, datadict["ds_da"]["yf"].values
         datadict["ds_rsi"]["xf"], datadict["ds_rsi"]["yf"] = xvals, yvals
         datadict["ds_rso"]["xf"], datadict["ds_rso"]["yf"] = xvals, yvals
-        datadict["ds_rsi_ctrl"]["xf"], datadict["ds_rsi_ctrl"]["yf"] = xvals, yvals
-        datadict["ds_rso_ctrl"]["xf"], datadict["ds_rso_ctrl"]["yf"] = xvals, yvals
+        if load_control:
+            datadict["ds_rsi_ctrl"]["xf"], datadict["ds_rsi_ctrl"]["yf"] = xvals, yvals
+            datadict["ds_rso_ctrl"]["xf"], datadict["ds_rso_ctrl"]["yf"] = xvals, yvals
         
         if load_ens_perts and ds_rso_pert is not None:
             datadict["ds_rso_pert"]["xf"], datadict["ds_rso_pert"]["yf"] = xvals, yvals
@@ -217,7 +233,11 @@ def load_experiments(
     
 
     if load_spectra:
-        ds_spectra_enspert, ds_spectra_increment = load_spectra_dataset(expnames=expnames, base_dir=base_dir, varname="M")
+        ds_spectra_enspert, ds_spectra_increment = load_spectra_dataset(
+            expnames=expnames, 
+            base_dir=base_dir, 
+            varname="M"
+            )
         return datadict, ds_spectra_enspert, ds_spectra_increment
     
     else:
@@ -238,10 +258,6 @@ def set_zlevels_predobs(
         zmin = np.min(z) if np.min(z) < zmin else zmin
     
     return ds_predobs.sel(zf=slice(zmin,zmax))
-
-
-
-
 
 
 

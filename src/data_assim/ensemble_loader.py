@@ -110,14 +110,22 @@ class EnsembleLoader:
             fname_base == "graspOutSimdata"
             or
             fname_base == "graspInRestart" 
+            or 
+            fname_base == "graspInNWP"
             ):
+
             raise ValueError(
-                f"Base name of file has to be either 'graspOutRestart' or 'graspOutSimdata'. \n"
+                f"Base name of file has to be either 'graspOut(/In)Restart', 'graspOutSimdata' or 'graspInNWP'. \n"
                 f"But fname-base name passed: {fname_base} is NOT specified"
                 )
         
+
         # --- 1) Load ensemble
-        fname = f"{fname_base}_{self.date_string}.meso.nc"
+        if fname_base == "graspInNWP":
+            fname = f"{fname_base}.meso.nc"
+        else:
+            fname = f"{fname_base}_{self.date_string}.meso.nc"
+        
         self.load_ensemble(fname)
         ds = self.ds_prior
 
@@ -128,7 +136,12 @@ class EnsembleLoader:
             # Add ensemble timestamp for Restart files, as they don't already have one (Simdata already has time dimension)
             ds = ds.expand_dims(time=[self.timestamp])
         
-        ds = utils_aspire.unstagger_u_v(ds, xfoffset=self.xf_offset, yfoffset=self.yf_offset)
+
+        if fname_base == "graspInNWP":
+            ds = ds.interp(time=self.timestamp) #.strftime("%Y-%m-%dT%H:%M")
+            ds = ds.expand_dims(time=[self.timestamp])
+        else:
+            ds = utils_aspire.unstagger_u_v(ds, xfoffset=self.xf_offset, yfoffset=self.yf_offset)
         
         return ds
 

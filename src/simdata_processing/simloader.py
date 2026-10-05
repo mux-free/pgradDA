@@ -96,7 +96,10 @@ class BaseLoader:
     def postprocess(self, ds: xr.Dataset, calculate_wind_magnitude:bool) -> xr.Dataset:
         """ Postprocess loaded dataset: """
         # --- 1) Unstagger u/v to full levels + calculate wind magnitude (optionally)
-        ds = unstagger_u_v(ds, xfoffset=None, yfoffset=None)
+        
+        if "xh" in ds["u"].dims:
+            ds = unstagger_u_v(ds, xfoffset=None, yfoffset=None)
+
         if calculate_wind_magnitude:
             ds["M"] = np.hypot(ds["u"], ds["v"])
 
@@ -143,11 +146,11 @@ class RestartLoader(BaseLoader):
         # --- 1) Extract time from filename 
         # Grab the 12-digit datetime block before the dot (YYYYMMDDHHMM)
         src = ds.encoding["source"]
-        m = re.search(r'(\d{12})\.\d+', src)
+        m = re.search(r'(\d{12})', src)
         if m:
             tstr = m.group(1)
         else:
-            m = re.search(r'(\d{10})\.\d+', src)
+            m = re.search(r'(\d{10})', src)
             if not m:
                 tstr=""
             tstr=""
@@ -203,8 +206,8 @@ def load_data(
         load_simdata: bool = True,
         load_control: bool = True,
         round_freq: str = "5min",
-        domain_subset:dict = dict(xy_iboundary = None, z_range = None),
-        memory_handling:dict = dict(n_workers=5, memory="40GB"),
+        domain_subset: dict = dict(xy_iboundary = None, z_range = None),
+        memory_handling: dict = dict(n_workers=5, memory="40GB"),
         other_data=None,
         fpattern=None
         ):

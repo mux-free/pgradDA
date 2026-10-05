@@ -37,11 +37,11 @@ class ExperimentContext:
     vert_loc:int|None = field(init=False)
     inflation: float  = field(init=False)
     mode_4d_3d: str   = field(init=False)
-    r2: float         = field(init=False)
+    obs_std: float    = field(init=False)
     rtpp: float|bool  = field(init=False)
     state_vars: list  = field(init=False)
-
-
+    obs_vars: list    = field(init=False)
+    
     # ----------------------------
     # -- Actual initisation --> As data-class is frozen, use __setattr__
     # ----------------------------
@@ -63,13 +63,14 @@ class ExperimentContext:
         t_end     = t0_pred + timedelta(seconds=dt_pred)
         
         # --- 4) DA specifications
-        radius        = config["ASSIMILATION"]["LETKF"]["loc_radius"]
-        vert_loc      = config["ASSIMILATION"]["LETKF"]["loc_vertical"]
-        inflation     = config["ASSIMILATION"]["LETKF"]["inflation"]
-        mode_4d_3d    = config["ASSIMILATION"]["LETKF"]["mode_4d_3d"]
-        state_vars    = config["ASSIMILATION"]["LETKF"]["state_vars"]
-        rtpp          = config["ASSIMILATION"]["LETKF"]["rtpp"]
-        r2            = config["ASSIMILATION"]["OBSERVATIONS"]["R2"]
+        radius     = config["ASSIMILATION"]["LETKF"]["loc_radius"]
+        vert_loc   = config["ASSIMILATION"]["LETKF"]["loc_vertical"]
+        inflation  = config["ASSIMILATION"]["LETKF"]["inflation"]
+        mode_4d_3d = config["ASSIMILATION"]["LETKF"]["mode_4d_3d"]
+        state_vars = config["ASSIMILATION"]["LETKF"]["state_vars"]
+        rtpp       = config["ASSIMILATION"]["LETKF"]["rtpp"]
+        obs_std    = config["ASSIMILATION"]["OBSERVATIONS"]["obs_std"]
+        obs_vars   = config["ASSIMILATION"]["OBSERVATIONS"]["obs_vars"]
 
         # --- 5) Handle paths
         experiment_dir = config["PATHS"]["experiment_dir"]
@@ -77,27 +78,28 @@ class ExperimentContext:
 
     
         # --- 6)  __init__             Set fields as attribtues (must be done in this way, as we specify contex to be immmutable dataclass)
-        object.__setattr__(self, "n_members",  n_members)
-        object.__setattr__(self, "n_da",       n_da)
-        object.__setattr__(self, "dt_da",      dt_da)
+        object.__setattr__(self, "n_members", n_members)
+        object.__setattr__(self, "n_da", n_da)
+        object.__setattr__(self, "dt_da", dt_da)
         object.__setattr__(self, "dt_pred", dt_pred)
-        object.__setattr__(self, "dt_spinup",  dt_spinup)
-        object.__setattr__(self, "t0_spinup",         t0_spinup)
+        object.__setattr__(self, "dt_spinup", dt_spinup)
+        object.__setattr__(self, "t0_spinup", t0_spinup)
         object.__setattr__(self, "t0_da", t0_da)
-        object.__setattr__(self, "t0_pred",    t0_pred)
-        object.__setattr__(self, "t_end",    t_end)
+        object.__setattr__(self, "t0_pred", t0_pred)
+        object.__setattr__(self, "t_end", t_end)
         object.__setattr__(self, "experiment_dir", experiment_dir)
         object.__setattr__(self, "simdir_ctrl", simdir_ctrl)
         # -- DA specifics
-        object.__setattr__(self, "radius",     radius)
-        object.__setattr__(self, "vert_loc",   vert_loc)
-        object.__setattr__(self, "inflation",  inflation)
+        object.__setattr__(self, "radius", radius)
+        object.__setattr__(self, "vert_loc", vert_loc)
+        object.__setattr__(self, "inflation", inflation)
         object.__setattr__(self, "mode_4d_3d", mode_4d_3d)
         object.__setattr__(self, "state_vars", state_vars)
-        object.__setattr__(self, "rtpp",       rtpp)
-        object.__setattr__(self, "r2",         r2)
-        object.__setattr__(self, "experiment_dir",  experiment_dir)
-        object.__setattr__(self, "simdir_ctrl",  simdir_ctrl)
+        object.__setattr__(self, "rtpp", rtpp)
+        object.__setattr__(self, "obs_std", obs_std)
+        object.__setattr__(self, "obs_vars", obs_vars)
+        object.__setattr__(self, "simdir_ctrl", simdir_ctrl)
+        object.__setattr__(self, "experiment_dir", experiment_dir)
 
 
 

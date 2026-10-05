@@ -51,10 +51,14 @@ def save_summary_ds(
 
     """
 
-    def split_ensemble_control(ds, ctrl_idx=0):
-        ds_ctrl = ds.sel(ensemble=ctrl_idx)
-        ds_ens  = ds.drop_sel(ensemble=ctrl_idx)
-        return ds_ctrl, ds_ens
+    def split_ensemble_control(ds, ctrl_idx:int|None=0):
+        if ctrl_idx is not None:
+            ds_ens  = ds.drop_sel(ensemble=ctrl_idx)
+            ds_ctrl = ds.sel(ensemble=ctrl_idx)
+            return ds_ctrl, ds_ens
+        else:
+            return None, ds
+
 
 
     def calc_mean_std(ds_ens):
@@ -71,11 +75,15 @@ def save_summary_ds(
 
 
     def calc_ens_perts(ds):
-        ds_ens = ds.drop_sel(ensemble=0)
+        if 0 in ds.ensemble:
+            ds = ds.drop_sel(ensemble=0)
         ds_perts = xr.Dataset()
         for var in save_vars:
-            da_mean = ds_ens[var].mean(dim="ensemble")
-            ds_perts[var] = ds_ens[var] - da_mean
+            if var not in ds:
+                print(f"Variable {var} is not contained in ds")
+                continue
+            da_mean = ds[var].mean(dim="ensemble")
+            ds_perts[var] = ds[var] - da_mean
         return ds_perts
 
 
@@ -98,7 +106,6 @@ def save_summary_ds(
         load_rsi=restartin,
         load_rso=restartout,
         load_simdata=simdata,
-        load_control=True,
         domain_subset = dict(xy_iboundary=xy_range, z_range=z_range),
     )
     
@@ -110,11 +117,11 @@ def save_summary_ds(
     ## --- SimData summary
     if simdata:
         ds_sd = data_dict["simdata"]
-        ds_sd_ctrl, ds_sd_ens = split_ensemble_control(ds_sd, ctrl_idx=0)
+        ds_sd_ctrl, ds_sd_ens = split_ensemble_control(ds_sd, ctrl_idx=None)
         if save_mean_std_only:
             ds_sd_ens = calc_mean_std(ds_sd_ens)
-        
-        save_ds(ds_sd_ctrl, f"{SAVE_DIR}/graspOutSimdata.control.nc")
+        if ds_sd_ctrl is not None:
+            save_ds(ds_sd_ctrl, f"{SAVE_DIR}/graspOutSimdata.control.nc")
         save_ds(ds_sd_ens,  f"{SAVE_DIR}/graspOutSimdata.ensemble.nc")
 
 
@@ -152,8 +159,7 @@ def save_summary_ds(
         ds_perts_rsi = calc_ens_perts(ds_rsi)
         # Save
         save_ds(ds_perts_rso, f"{SAVE_DIR}/graspRestartOut.EnsPerts.nc")
-        save_ds(ds_perts_rsi,  f"{SAVE_DIR}/graspRestartIn.EnsPerts.nc")
-
+        save_ds(ds_perts_rsi, f"{SAVE_DIR}/graspRestartIn.EnsPerts.nc")
 
 
     if restartin:
@@ -161,12 +167,13 @@ def save_summary_ds(
         # --- Adjust coordinates
         ds_rsi = set_xf_yf(ds_rsi, xvlas=xvals, yvals=yvals)
         # -- Split control and ensemble members
-        ds_rsi_ctrl, ds_rsi_ens = split_ensemble_control(ds_rsi, ctrl_idx=0)
+        ds_rsi_ctrl, ds_rsi_ens = split_ensemble_control(ds_rsi, ctrl_idx=None)
         # --- Compute mean and standard dev from ensemble
         if save_mean_std_only:
             ds_rsi_ens = calc_mean_std(ds_rsi_ens)
         
-        save_ds(ds_rsi_ctrl, f"{SAVE_DIR}/graspRestartIn.control.nc")
+        if ds_rsi_ctrl is not None:
+            save_ds(ds_rsi_ctrl, f"{SAVE_DIR}/graspRestartIn.control.nc")
         save_ds(ds_rsi_ens,  f"{SAVE_DIR}/graspRestartIn.ensemble.nc")
 
     if restartout:
@@ -174,11 +181,13 @@ def save_summary_ds(
         # --- Adjust coords
         ds_rso = set_xf_yf(ds_rso, xvlas=xvals, yvals=yvals)
         # -- Split control and ensemble members
-        ds_rso_ctrl, ds_rso_ens = split_ensemble_control(ds_rso, ctrl_idx=0)
+        ds_rso_ctrl, ds_rso_ens = split_ensemble_control(ds_rso, ctrl_idx=None)
         # --- Compute mean and standard dev from ensemble
         if save_mean_std_only:
             ds_rso_ens = calc_mean_std(ds_rso_ens)
-        save_ds(ds_rso_ctrl, f"{SAVE_DIR}/graspRestartOut.control.nc")
+
+        if ds_rso_ctrl is not None:
+            save_ds(ds_rso_ctrl, f"{SAVE_DIR}/graspRestartOut.control.nc")
         save_ds(ds_rso_ens,  f"{SAVE_DIR}/graspRestartOut.ensemble.nc")
 
 

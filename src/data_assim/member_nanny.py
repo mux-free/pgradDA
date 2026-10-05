@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 # OWN MODULES
 import sys
 sys.path.insert(1, '../../')
-from run_experiments.experiment_context import ExperimentContext
 
 
 
@@ -26,36 +25,18 @@ class MemberNanny:
     """
 
     def __init__(self, 
-                 context: ExperimentContext,
                  simdir_ctrl: Path,
                  member_nr: int | str | None,
                  verbose: int = 0) -> None:
 
 
-        # --- reference the shared context ───────────────────────────────
-        self.context = context
+        # --- reference the shared  ───────────────────────────────
         self.verbose = verbose
         self.member_nr  = member_nr
         self.member_id = self._retireve_ensemble_tag()
-
-
-        # --- Define inner domain corridor where no perturbations are added
-
-        # --- Ensemble shortcuts
-        self.n_members         = context.n_members
-
-        # --- shortcuts for the fields your methods already use 
-        self.dt_spinup: int  = context.dt_spinup
-        self.t0_da: datetime = context.t0_da        
-        self.dt_da: int      = context.dt_da        
-
-
         # --- Member-specific stuff (control and member directory)
         self.simdir_ctrl: Path = simdir_ctrl
         self.member_dir: Path  = simdir_ctrl / self.member_id
-
-
-
 
 
     def _retireve_ensemble_tag(self):
@@ -68,7 +49,7 @@ class MemberNanny:
             tag = f"ensemble_{int(self.member_nr):02d}" 
         elif isinstance(self.member_nr, str) and (self.member_nr.lower()=="ctrl" or self.member_nr.lower()=="ref"):
             tag = "" 
-        elif self.member_nr==0:
+        elif self.member_nr==0 or self.member_nr is None:
             tag = ""
         else:
             raise ValueError(f"ERROR 404: Member-ID {self.member_nr} not found")
@@ -76,12 +57,12 @@ class MemberNanny:
 
 
 
-    def _ensure_presence_first_restartfile(self):
+    def _ensure_presence_first_restartfile(self, t0):
         """ Tests if first restart file is present """
         memb_dir_files = [p.name for p in self.member_dir.glob("*")]
-        t0_da = self.t0_da.strftime("%y%m%d%H%M")
+        t0 = t0.strftime("%y%m%d%H%M")
 
-        expected = f"graspInRestart_{t0_da}.meso.nc"
+        expected = f"graspInRestart_{t0}.meso.nc"
 
         if expected not in memb_dir_files:
             raise FileExistsError(
@@ -89,6 +70,7 @@ class MemberNanny:
                 f"Expected: {expected}\n"
                 f"Directory: {self.member_dir}"
             )
+
 
     def update_timing(self, tstart_window: datetime, dt_run:float, debug:bool=False):
         """ 

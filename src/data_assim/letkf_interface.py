@@ -35,6 +35,7 @@ from pytassim.interface.letkf import LETKF
 def stack_state_for_pytassim(
     ds: xr.Dataset,
     state_vars: Sequence[str],
+    grid_dims: list[str] = ["zf", "yf", "xf"],
 ) -> xr.DataArray:
     """
     Stacks prior-state (which is a 3d field for each variable with dims z,y,x)
@@ -53,11 +54,17 @@ def stack_state_for_pytassim(
     if missing:
         raise KeyError(f"Variables missing from state: {missing}")
 
+    
     da = ds[state_vars].to_array(dim="var_name")         # (var_name, time?, ensemble, zf, yf, xf)
-    da = da.stack(grid=("zf", "yf", "xf"))
+    da = da.stack(grid=grid_dims)
+    
     # Ensure dimension order
     order = [d for d in ("var_name", "time", "ensemble", "grid") if d in da.dims]
     da = da.transpose(*order)
+    
+    
+    
+    
     return da
 
 
@@ -105,15 +112,13 @@ class MetMasObsOp:
 
 
 
-
-
 # ----------------------------------------------------------------------------- #
 # Build observation dataset for pytassim                                        #
 # ----------------------------------------------------------------------------- #
 def build_obs_ds(
     ds_obs: xr.Dataset,
     analysis_time: datetime,
-    varnames=("u", "v"),
+    varnames = ("u", "v"),
     R_std: float = 0.5,
     time_tolerance: str = "2min",
 ) -> xr.Dataset:
@@ -139,7 +144,6 @@ def build_obs_ds(
     target = pd.Timestamp(analysis_time)
     tol = pd.Timedelta(time_tolerance)
 
-    
     # ========================================================================================================
     # --- Validation of observation Dataset
     # =======================================
@@ -305,35 +309,109 @@ def make_gc_distance(xf_vals: np.ndarray, yf_vals: np.ndarray, zf_vals: np.ndarr
 
 
 
-# ----------------------------------------------------------------------------- #
-# Run LETKF distance                                                            #
-# ----------------------------------------------------------------------------- #
+# # ----------------------------------------------------------------------------- #
+# # Run LETKF distance                                                            #
+# # ----------------------------------------------------------------------------- #
+# def run_letkf(
+#     ds_prior: xr.Dataset,
+#     ds_obs: xr.Dataset,
+#     loc_radius_m: int,
+#     vert_loc: int|None,
+#     inflation: float,
+#     R_std: float = 0.5,
+#     state_vars: Sequence[str] = ["u", "v", "Thl", "qt"],
+#     obs_vars: Sequence[str] = ("u", "v"),
+#     gpu: bool = True,
+#     weight_save_path:str|None=None,
+#     weight_grid: None | xr.DataArray = None,
+
+# ) -> xr.Dataset:
+
+#     # --- 1) Build observation dataset (3D or 4D-flat)
+#     analysis_time = np.asarray(ds_prior["time"].values)[0]
+
+
+#     ds_obs = build_obs_ds(
+#         ds_obs,
+#         varnames=obs_vars, 
+#         R_std=R_std,
+#         time_tolerance="2min", 
+#         analysis_time=analysis_time,
+#     )
+
+#     # --- 2) Observation operator
+#     op = MetMasObsOp()
+#     ds_obs.attrs["operator"] = op
+#     ds_obs.obs.operator = op
+
+
+#     # --- 3) Localization
+#     if vert_loc is not None:
+#         dist_fn = make_gc_distance(ds_obs["xf"].values, ds_obs["yf"].values, ds_obs["zf"].values)
+#         loc = GaspariCohn((loc_radius_m, vert_loc), dist_func=dist_fn)
+#     else:
+#         dist_fn = make_gc_distance(ds_obs["xf"].values, ds_obs["yf"].values)
+#         loc = GaspariCohn((loc_radius_m,), dist_func=dist_fn)
+
+
+#     # --- 4) Pack state for pytassim (Here ds_prior is instantaneous restart field, as this one will be assimilated)
+#     state_stacked = stack_state_for_pytassim(ds_prior, state_vars=state_vars)
+
+#     # --- 5) Assimilation update
+#     letkf = LETKF(
+#         localization=loc, 
+#         inf_factor=inflation, 
+#         gpu=gpu,
+#         weight_save_path=weight_save_path
+#         )
+    
+#     analysis_stacked = letkf.assimilate(
+#         state=state_stacked, 
+#         observations=(ds_obs,),
+#         pseudo_state=state_stacked)
+#     an = analysis_stacked.unstack("grid").to_dataset(dim="var_name")
+#     for var in state_vars:
+#         if var in ds_prior:
+#             an[var].attrs.update(ds_prior[var].attrs)
+
+#     # WEIRD HACK TO AVOID: "RuntimeError: lazy wrapper should be called at most once"
+#     try:
+#         an = an.compute()
+#     except RuntimeError: 
+#         an = an.compute()
+
+#     return an
+
+
+
+
 def run_letkf(
     ds_prior: xr.Dataset,
+    ds_prior_pseudo: xr.Dataset | None,
     ds_obs: xr.Dataset,
     loc_radius_m: int,
-    vert_loc: int|None,
+    vert_loc: int | None, 
+    state_vars: Sequence[str],
+    obs_vars: Sequence[str],
     inflation: float,
     R_std: float = 0.5,
-    state_vars: Sequence[str] = ["u", "v", "Thl", "qt"],
-    varnames: Sequence[str] = ("u", "v"),
     gpu: bool = True,
-    weight_save_path:str|None=None,
+    weight_save_path: str | None = None,
     weight_grid: None | xr.DataArray = None,
-
 ) -> xr.Dataset:
+
 
     # --- 1) Build observation dataset (3D or 4D-flat)
     analysis_time = np.asarray(ds_prior["time"].values)[0]
 
-
     ds_obs = build_obs_ds(
         ds_obs,
-        varnames=varnames, 
+        varnames=obs_vars, 
         R_std=R_std,
         time_tolerance="2min", 
         analysis_time=analysis_time,
     )
+
 
     # --- 2) Observation operator
     op = MetMasObsOp()
@@ -350,9 +428,23 @@ def run_letkf(
         loc = GaspariCohn((loc_radius_m,), dist_func=dist_fn)
 
 
+    print("\n----------------")
+    print("DIM check 1")
+    print(ds_prior.coords)
+    print()
+    print()
+    print(ds_prior.dims)
+    print()
+    print()
+
     # --- 4) Pack state for pytassim (Here ds_prior is instantaneous restart field, as this one will be assimilated)
     state_stacked = stack_state_for_pytassim(ds_prior, state_vars=state_vars)
-
+    if ds_prior_pseudo is None:
+        ds_prior_pseudo = ds_prior
+        pseudo_state_stacked = state_stacked
+    else:
+        pseudo_state_stacked = stack_state_for_pytassim(ds_prior_pseudo, state_vars=obs_vars)
+    
     # --- 5) Assimilation update
     letkf = LETKF(
         localization=loc, 
@@ -360,10 +452,17 @@ def run_letkf(
         gpu=gpu,
         weight_save_path=weight_save_path
         )
+
+    analysis_stacked = letkf.assimilate(
+        state=state_stacked,
+        observations=(ds_obs,),
+        pseudo_state=pseudo_state_stacked
+        )
     
-    analysis_stacked = letkf.assimilate(state_stacked, (ds_obs,))
+
+    
     an = analysis_stacked.unstack("grid").to_dataset(dim="var_name")
-    for var in varnames:
+    for var in state_vars:
         if var in ds_prior:
             an[var].attrs.update(ds_prior[var].attrs)
 
@@ -373,5 +472,7 @@ def run_letkf(
     except RuntimeError: 
         an = an.compute()
 
+
     return an
+
 
